@@ -3,18 +3,28 @@ name: V2EX 每日签到
 on:
   schedule:
     # ================================================================
-    # cron 设为 UTC 13:00（北京 21:00）触发
-    # 触发后随机延迟 0~10800 秒（0~3 小时），实际签到在 21:00~00:00 之间
+    # 当前 cron 为 UTC 19:45（北京次日 03:45）触发
+    # 触发后随机延迟 0~59 秒；实际执行还受 Actions 排队影响
     # 想改时间段：改 cron 的触发起点 + 下方延迟范围
     #   北京 21:00 = UTC 13:00 → '0 13 * * *'
     #   北京 09:00 = UTC 01:00 → '0 1 * * *'
     # ================================================================
     - cron: '45 19 * * *'
-  workflow_dispatch: # 手动触发（Actions 页 → Run workflow，手动跑不延迟）
+  workflow_dispatch: # 手动触发不延迟，可减少阅读数量做验证
+    inputs:
+      activity_max_topics:
+        description: '本次每账号最多阅读篇数（留空沿用仓库配置，验证可填 2）'
+        required: false
+        type: string
+
+concurrency:
+  group: v2ex-daily
+  cancel-in-progress: false
 
 jobs:
   checkin:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
@@ -27,11 +37,14 @@ jobs:
       - name: 安装依赖
         run: pip install requests
 
+      - name: 运行离线测试
+        run: python -m unittest -v
+
       - name: 随机延迟
         if: github.event_name == 'schedule'
         run: |
           DELAY=$((RANDOM % 60))
-          echo "随机延迟 $DELAY 秒（约 $((DELAY / 60)) 分钟），实际签到时间在 21:00~00:00 之间"
+          echo "随机延迟 $DELAY 秒，当前计划触发时间为北京时间 03:45"
           sleep $DELAY
 
       - name: 执行签到
@@ -44,4 +57,11 @@ jobs:
           # Telegram 通知（可选，不配则不推送）
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          # 活跃度配置（Repository variables，可选，空值使用脚本默认值）
+          V2EX_ACTIVITY_ENABLED: ${{ vars.V2EX_ACTIVITY_ENABLED }}
+          V2EX_ACTIVITY_MAX_TOPICS: ${{ inputs.activity_max_topics || vars.V2EX_ACTIVITY_MAX_TOPICS }}
+          V2EX_ACTIVITY_MIN_TOPICS: ${{ vars.V2EX_ACTIVITY_MIN_TOPICS }}
+          V2EX_ACTIVITY_GAP_MIN: ${{ vars.V2EX_ACTIVITY_GAP_MIN }}
+          V2EX_ACTIVITY_GAP_MAX: ${{ vars.V2EX_ACTIVITY_GAP_MAX }}
+          V2EX_ACTIVITY_MAX_SECONDS: ${{ vars.V2EX_ACTIVITY_MAX_SECONDS }}
         run: python v2ex_checkin.py
