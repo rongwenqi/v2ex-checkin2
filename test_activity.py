@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import date, datetime, timezone
 from unittest.mock import Mock, patch
 
 import requests
@@ -13,6 +14,30 @@ def balance(gold=0, silver=0, copper=0):
 
 
 class ActivityTests(unittest.TestCase):
+    def test_daily_cycle_and_reset(self):
+        expected = [55, 56, 57, 58, 59, 60, 55, 56, 57, 58, 59, 60, 55]
+        for offset, target in enumerate(expected):
+            day = date.fromordinal(date(2026, 10, 23).toordinal() + offset)
+            self.assertEqual(activity.daily_topic_limit(day), target)
+
+    @patch.object(activity, "datetime")
+    def test_daily_cycle_uses_beijing_date(self, clock):
+        instant = datetime(2026, 10, 23, 16, 30, tzinfo=timezone.utc)
+        clock.now.side_effect = lambda tz: instant.astimezone(tz)
+        self.assertEqual(activity.daily_topic_limit(), 56)
+
+    @patch.object(activity, "daily_topic_limit", return_value=58)
+    def test_default_limits_follow_daily_target(self, limit):
+        with patch.dict(os.environ, {}, clear=True):
+            config = activity.settings()
+            self.assertEqual((config["min_topics"], config["max_topics"]), (58, 58))
+
+    @patch.object(activity, "daily_topic_limit", return_value=58)
+    def test_explicit_limit_still_overrides_daily_target(self, limit):
+        with patch.dict(os.environ, {"V2EX_ACTIVITY_MAX_TOPICS": "2"}, clear=True):
+            config = activity.settings()
+            self.assertEqual((config["min_topics"], config["max_topics"]), (2, 2))
+
     def config(self, **changes):
         config = dict(enabled=True, max_topics=2, min_topics=0, gap_min=5,
                       gap_max=5, max_seconds=60)
