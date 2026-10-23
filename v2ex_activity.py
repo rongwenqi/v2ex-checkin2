@@ -4,7 +4,7 @@ import os
 import random
 import re
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
@@ -92,11 +92,10 @@ def get_page(session, path):
 
 
 def daily_topic_limit(today=None):
-    """按北京时间自然日循环：2026-10-23 为第 1 天，55～60 篇。"""
+    """每天随机选择 500～1000 篇，同一北京时间日期保持一致。"""
     if today is None:
         today = datetime.now(timezone(timedelta(hours=8))).date()
-    elapsed = max(0, (today - date(2026, 10, 23)).days)
-    return 55 + elapsed % 6
+    return random.Random(f"v2ex-activity:{today.isoformat()}").randint(500, 1000)
 
 
 def settings():
@@ -113,10 +112,10 @@ def settings():
     config = {
         "enabled": enabled in ("true", "1", "yes", "on"),
         "max_topics": target,
-        "min_topics": number("V2EX_ACTIVITY_MIN_TOPICS", target, 0, 1000),
-        "gap_min": number("V2EX_ACTIVITY_GAP_MIN", 15, 5, 300),
-        "gap_max": number("V2EX_ACTIVITY_GAP_MAX", 30, 5, 300),
-        "max_seconds": number("V2EX_ACTIVITY_MAX_SECONDS", 7200, 60, 14400),
+        "min_topics": number("V2EX_ACTIVITY_MIN_TOPICS", min(250, target), 0, 1000),
+        "gap_min": number("V2EX_ACTIVITY_GAP_MIN", 10, 5, 300),
+        "gap_max": number("V2EX_ACTIVITY_GAP_MAX", 15, 5, 300),
+        "max_seconds": number("V2EX_ACTIVITY_MAX_SECONDS", 19800, 60, 21600),
     }
     if config["gap_min"] > config["gap_max"]:
         raise ValueError("阅读最小间隔不能大于最大间隔")
@@ -153,7 +152,7 @@ def read_activity(session, name, config, log):
         check_balance()
         log(name, f"开始活跃度阅读，最多 {config['max_topics']} 篇 / {config['max_seconds']} 秒")
         # 分页按需加载，每次运行仅访问去重后的帖子，不重复刷新同一帖子。
-        for page in range(1, 31):
+        for page in range(1, 101):
             pause()
             if expired():
                 reason = "达到时长上限"
