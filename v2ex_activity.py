@@ -4,6 +4,7 @@ import os
 import random
 import re
 import time
+from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
@@ -90,6 +91,14 @@ def get_page(session, path):
     raise ActivityError("重定向次数过多")
 
 
+def daily_topic_limit(today=None):
+    """按北京时间自然日循环：2026-10-23 为第 1 天，55～60 篇。"""
+    if today is None:
+        today = datetime.now(timezone(timedelta(hours=8))).date()
+    elapsed = max(0, (today - date(2026, 10, 23)).days)
+    return 55 + elapsed % 6
+
+
 def settings():
     def number(key, default, low, high):
         value = int(os.getenv(key, "").strip() or default)
@@ -100,10 +109,11 @@ def settings():
     enabled = os.getenv("V2EX_ACTIVITY_ENABLED", "true").strip().lower() or "true"
     if enabled not in ("true", "false", "1", "0", "yes", "no", "on", "off"):
         raise ValueError("V2EX_ACTIVITY_ENABLED 必须为 true/false")
+    target = number("V2EX_ACTIVITY_MAX_TOPICS", daily_topic_limit(), 1, 1000)
     config = {
         "enabled": enabled in ("true", "1", "yes", "on"),
-        "max_topics": number("V2EX_ACTIVITY_MAX_TOPICS", 300, 1, 1000),
-        "min_topics": number("V2EX_ACTIVITY_MIN_TOPICS", 250, 0, 1000),
+        "max_topics": target,
+        "min_topics": number("V2EX_ACTIVITY_MIN_TOPICS", target, 0, 1000),
         "gap_min": number("V2EX_ACTIVITY_GAP_MIN", 15, 5, 300),
         "gap_max": number("V2EX_ACTIVITY_GAP_MAX", 30, 5, 300),
         "max_seconds": number("V2EX_ACTIVITY_MAX_SECONDS", 7200, 60, 14400),
