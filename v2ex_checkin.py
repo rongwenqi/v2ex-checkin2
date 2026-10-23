@@ -49,7 +49,9 @@ import re
 import sys
 import json
 import time
+from html import escape
 from datetime import datetime, timezone, timedelta
+from v2ex_activity import read_activity, settings as activity_settings
 
 try:
     import requests
@@ -137,8 +139,7 @@ def _extract_reward(html):
     return ""
 
 
-def checkin(name, cookie):
-    """签到，返回 (success: bool, reward: str)"""
+def create_session(cookie):
     s = requests.Session()
     s.headers.update({
         "User-Agent": UA,
@@ -146,9 +147,21 @@ def checkin(name, cookie):
         "Referer": f"{BASE_URL}/mission/daily",
         "Accept-Language": "zh-CN,zh;q=0.9",
     })
+    return s
+
+
+def checkin(name, cookie):
+    """签到，返回 (success: bool, reward: str)"""
+    with create_session(cookie) as session:
+        return _checkin(name, session)
+
+
+def _checkin(name, s):
 
     # 1. 访问签到页
     r = s.get(f"{BASE_URL}/mission/daily", timeout=TIMEOUT, allow_redirects=True)
+    if r.status_code != 200:
+        return False, f"签到页访问失败 HTTP {r.status_code}"
 
     # 未登录会重定向到 /signin，或页面提示需登录
     if "/signin" in r.url or "You need to sign in" in r.text or "请先登录" in r.text:
@@ -201,33 +214,48 @@ def checkin(name, cookie):
             continue
         break
 
-    log(name, "OK 签到成功")
-    return True, "签到成功（奖励信息未识别）"
+    if any("每日登录奖励已领取" in page for page in pages):
+        log(name, "OK 签到成功")
+        return True, "签到成功（奖励信息未识别）"
+    return False, "未确认签到成功，停止后续阅读"
 
 
 def main():
+    try:
+        activity = activity_settings()
+    except ValueError as error:
+        sys.exit(f"活跃度配置错误：{error}")
     accounts = load_config()
     if not accounts:
         sys.exit("未找到配置！请设置环境变量 V2EX_ACCOUNTS / V2EX_COOKIE 或创建 config.json（参考脚本头部说明）")
 
     log("系统", f"开始签到，共 {len(accounts)} 个账号")
     ok = 0
+    activity_ok = 0
     results = []
     coins = {}  # {币种: 数量} 汇总今天新领取的
     for name, cookie in accounts:
         try:
             success, reward = checkin(name, cookie)
+            account_result = f"{'✅' if success else '❌'} <b>{escape(name)}</b>\n   └ {escape(reward)}"
             if success:
                 ok += 1
-                results.append(f"✅ <b>{name}</b>\n   └ {reward}")
                 # 提取奖励数量汇总
-                for amt, unit in re.findall(r'(\d+)\s*(铜币|银币|金币)', reward):
-                    coins[unit] = coins.get(unit, 0) + int(amt)
+                if not reward.startswith("今日已签过"):
+                    for amt, unit in re.findall(r'(\d+)\s*(铜币|银币|金币)', reward):
+                        coins[unit] = coins.get(unit, 0) + int(amt)
+                if activity["enabled"]:
+                    with create_session(cookie) as session:
+                        completed, activity_result = read_activity(session, name, activity, log)
+                    activity_ok += int(completed)
+                    account_result += f"\n   └ {'✅' if completed else '❌'} {escape(activity_result)}"
             else:
-                results.append(f"❌ <b>{name}</b>\n   └ {reward}")
+                if activity["enabled"]:
+                    account_result += "\n   └ 活跃度：签到失败，跳过阅读"
+            results.append(account_result)
         except requests.RequestException as e:
             log(name, f"X 网络错误: {e}")
-            results.append(f"❌ <b>{name}</b>\n   └ 网络错误")
+            results.append(f"❌ <b>{escape(name)}</b>\n   └ 网络错误")
         time.sleep(2)  # 多账号间隔，避免请求过快
 
     log("系统", f"完成：{ok}/{len(accounts)} 成功")
@@ -235,23 +263,26 @@ def main():
     # Telegram 通知（卡片式排版）
     now_bj = datetime.now(timezone(timedelta(hours=8)))
     sep = "━━━━━━━━━━━━━━━━━━"
-    icon = "🎯" if ok == len(accounts) else "⚠️"
+    all_ok = ok == len(accounts) and (not activity["enabled"] or activity_ok == len(accounts))
+    icon = "🎯" if all_ok else "⚠️"
 
     msg = f"<b>{icon} V2EX 每日签到</b>\n"
     msg += f"{sep}\n"
     msg += f"⏰ {now_bj:%Y-%m-%d %H:%M}\n"
     msg += f"📊 成功 <b>{ok}</b>/<b>{len(accounts)}</b>\n"
+    if activity["enabled"]:
+        msg += f"📖 活跃度任务完成 <b>{activity_ok}</b>/<b>{len(accounts)}</b>（不代表奖励确认）\n"
     msg += f"{sep}\n"
     msg += "\n".join(results)
     msg += f"\n{sep}\n"
     if coins:
         coin_str = "，".join(f"{v} {k}" for k, v in coins.items())
-        msg += f"💎 今日收获 · <b>{coin_str}</b>"
+        msg += f"💎 本次新领签到奖励 · <b>{coin_str}</b>"
     else:
-        msg += "💎 今日收获 · 无"
+        msg += "💎 本次新领签到奖励 · 无"
     send_telegram(msg)
 
-    sys.exit(0 if ok == len(accounts) else 1)
+    sys.exit(0 if all_ok else 1)
 
 
 if __name__ == "__main__":
