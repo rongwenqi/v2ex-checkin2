@@ -14,25 +14,31 @@ def balance(gold=0, silver=0, copper=0):
 
 
 class ActivityTests(unittest.TestCase):
-    def test_daily_cycle_and_reset(self):
-        expected = [55, 56, 57, 58, 59, 60, 55, 56, 57, 58, 59, 60, 55]
-        for offset, target in enumerate(expected):
+    def test_daily_random_target_is_bounded_and_stable(self):
+        targets = set()
+        for offset in range(366):
             day = date.fromordinal(date(2026, 10, 23).toordinal() + offset)
+            target = activity.daily_topic_limit(day)
+            self.assertGreaterEqual(target, 500)
+            self.assertLessEqual(target, 1000)
             self.assertEqual(activity.daily_topic_limit(day), target)
+            targets.add(target)
+        self.assertGreater(len(targets), 1)
 
     @patch.object(activity, "datetime")
-    def test_daily_cycle_uses_beijing_date(self, clock):
+    def test_daily_target_uses_beijing_date(self, clock):
         instant = datetime(2026, 10, 23, 16, 30, tzinfo=timezone.utc)
         clock.now.side_effect = lambda tz: instant.astimezone(tz)
-        self.assertEqual(activity.daily_topic_limit(), 56)
+        self.assertEqual(activity.daily_topic_limit(), activity.daily_topic_limit(date(2026, 10, 24)))
 
-    @patch.object(activity, "daily_topic_limit", return_value=58)
+    @patch.object(activity, "daily_topic_limit", return_value=758)
     def test_default_limits_follow_daily_target(self, limit):
         with patch.dict(os.environ, {}, clear=True):
             config = activity.settings()
-            self.assertEqual((config["min_topics"], config["max_topics"]), (58, 58))
+            self.assertEqual((config["min_topics"], config["max_topics"]), (250, 758))
+            self.assertEqual((config["gap_min"], config["gap_max"], config["max_seconds"]), (10, 15, 19800))
 
-    @patch.object(activity, "daily_topic_limit", return_value=58)
+    @patch.object(activity, "daily_topic_limit", return_value=758)
     def test_explicit_limit_still_overrides_daily_target(self, limit):
         with patch.dict(os.environ, {"V2EX_ACTIVITY_MAX_TOPICS": "2"}, clear=True):
             config = activity.settings()
@@ -111,6 +117,24 @@ class ActivityTests(unittest.TestCase):
         ok, msg = activity.read_activity(Mock(), "test", self.config(max_topics=30), Mock())
         self.assertTrue(ok)
         self.assertIn("已读 20 篇，余额增加 2 次", msg)
+
+    @patch.object(activity.time, "sleep")
+    @patch.object(activity, "get_page")
+    def test_can_read_1000_topics_across_more_than_30_pages(self, get, sleep):
+        def response(session, path):
+            if path == "/balance":
+                return balance(copper=10)
+            if path.startswith("/recent?p="):
+                page = int(path.split("=")[1])
+                return ''.join(f'<a href="/t/{i}">topic</a>' for i in range((page - 1) * 20 + 1, page * 20 + 1))
+            return '<div class="topic_content">body</div>'
+
+        get.side_effect = response
+        ok, msg = activity.read_activity(Mock(), "test", self.config(max_topics=1000, min_topics=1000), Mock())
+        self.assertTrue(ok)
+        self.assertIn("已读 1000 篇", msg)
+        self.assertEqual(sum(call.args[1].startswith('/t/') for call in get.call_args_list), 1000)
+        self.assertEqual(sum(call.args[1].startswith('/recent') for call in get.call_args_list), 50)
 
     @patch.object(activity, "get_page", return_value="<html>unknown</html>")
     def test_unparseable_balance_stops(self, get):
