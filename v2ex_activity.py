@@ -4,7 +4,7 @@ import os
 import random
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
@@ -92,10 +92,11 @@ def get_page(session, path):
 
 
 def daily_topic_limit(today=None):
-    """每天随机选择 500～1000 篇，同一北京时间日期保持一致。"""
+    """从 2026-10-24 起，按北京时间每天从 50 篇递增至 60 篇后循环。"""
     if today is None:
         today = datetime.now(timezone(timedelta(hours=8))).date()
-    return random.Random(f"v2ex-activity:{today.isoformat()}").randint(500, 1000)
+    elapsed = max(0, (today - date(2026, 10, 24)).days)
+    return 50 + elapsed % 11
 
 
 def settings():
