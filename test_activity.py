@@ -14,16 +14,10 @@ def balance(gold=0, silver=0, copper=0):
 
 
 class ActivityTests(unittest.TestCase):
-    def test_daily_random_target_is_bounded_and_stable(self):
-        targets = set()
-        for offset in range(366):
-            day = date.fromordinal(date(2026, 10, 23).toordinal() + offset)
-            target = activity.daily_topic_limit(day)
-            self.assertGreaterEqual(target, 500)
-            self.assertLessEqual(target, 1000)
-            self.assertEqual(activity.daily_topic_limit(day), target)
-            targets.add(target)
-        self.assertGreater(len(targets), 1)
+    def test_daily_target_increases_and_repeats_after_60(self):
+        for offset in range(33):
+            day = date.fromordinal(date(2026, 10, 24).toordinal() + offset)
+            self.assertEqual(activity.daily_topic_limit(day), 50 + offset % 11)
 
     @patch.object(activity, "datetime")
     def test_daily_target_uses_beijing_date(self, clock):
@@ -31,14 +25,14 @@ class ActivityTests(unittest.TestCase):
         clock.now.side_effect = lambda tz: instant.astimezone(tz)
         self.assertEqual(activity.daily_topic_limit(), activity.daily_topic_limit(date(2026, 10, 24)))
 
-    @patch.object(activity, "daily_topic_limit", return_value=758)
+    @patch.object(activity, "daily_topic_limit", return_value=58)
     def test_default_limits_follow_daily_target(self, limit):
         with patch.dict(os.environ, {}, clear=True):
             config = activity.settings()
-            self.assertEqual((config["min_topics"], config["max_topics"]), (250, 758))
+            self.assertEqual((config["min_topics"], config["max_topics"]), (58, 58))
             self.assertEqual((config["gap_min"], config["gap_max"], config["max_seconds"]), (10, 15, 19800))
 
-    @patch.object(activity, "daily_topic_limit", return_value=758)
+    @patch.object(activity, "daily_topic_limit", return_value=58)
     def test_explicit_limit_still_overrides_daily_target(self, limit):
         with patch.dict(os.environ, {"V2EX_ACTIVITY_MAX_TOPICS": "2"}, clear=True):
             config = activity.settings()
