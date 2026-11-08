@@ -2,9 +2,9 @@ name: V2EX 每日签到
 
 on:
   schedule:
-    # UTC 06:17 = 北京时间 14:17，避开每天 08:00 刷新前后。
+    # UTC 06:00 = 北京时间 14:00，避开每天 08:00 刷新前后。
     # GitHub 排队可能导致实际签到延后，任务到达后仍正常执行。
-    - cron: '17 6 * * *'
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -34,7 +34,7 @@ jobs:
         if: github.event_name == 'schedule'
         run: |
           DELAY=$((RANDOM % 60))
-          echo "随机延迟 $DELAY 秒，计划触发时间为北京时间 14:17"
+          echo "随机延迟 $DELAY 秒，计划触发时间为北京时间 14:00"
           sleep $DELAY
 
       - name: 执行签到
