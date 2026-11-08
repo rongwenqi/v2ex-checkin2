@@ -51,7 +51,6 @@ import json
 import time
 from html import escape
 from datetime import datetime, timezone, timedelta
-from v2ex_activity import read_activity, settings as activity_settings
 
 try:
     import requests
@@ -217,21 +216,16 @@ def _checkin(name, s):
     if any("每日登录奖励已领取" in page for page in pages):
         log(name, "OK 签到成功")
         return True, "签到成功（奖励信息未识别）"
-    return False, "未确认签到成功，停止后续阅读"
+    return False, "未确认签到成功"
 
 
 def main():
-    try:
-        activity = activity_settings()
-    except ValueError as error:
-        sys.exit(f"活跃度配置错误：{error}")
     accounts = load_config()
     if not accounts:
         sys.exit("未找到配置！请设置环境变量 V2EX_ACCOUNTS / V2EX_COOKIE 或创建 config.json（参考脚本头部说明）")
 
     log("系统", f"开始签到，共 {len(accounts)} 个账号")
     ok = 0
-    activity_ok = 0
     results = []
     coins = {}  # {币种: 数量} 汇总今天新领取的
     for name, cookie in accounts:
@@ -244,14 +238,6 @@ def main():
                 if not reward.startswith("今日已签过"):
                     for amt, unit in re.findall(r'(\d+)\s*(铜币|银币|金币)', reward):
                         coins[unit] = coins.get(unit, 0) + int(amt)
-                if activity["enabled"]:
-                    with create_session(cookie) as session:
-                        completed, activity_result = read_activity(session, name, activity, log)
-                    activity_ok += int(completed)
-                    account_result += f"\n   └ {'✅' if completed else '❌'} {escape(activity_result)}"
-            else:
-                if activity["enabled"]:
-                    account_result += "\n   └ 活跃度：签到失败，跳过阅读"
             results.append(account_result)
         except requests.RequestException as e:
             log(name, f"X 网络错误: {e}")
@@ -263,15 +249,13 @@ def main():
     # Telegram 通知（卡片式排版）
     now_bj = datetime.now(timezone(timedelta(hours=8)))
     sep = "━━━━━━━━━━━━━━━━━━"
-    all_ok = ok == len(accounts) and (not activity["enabled"] or activity_ok == len(accounts))
+    all_ok = ok == len(accounts)
     icon = "🎯" if all_ok else "⚠️"
 
     msg = f"<b>{icon} V2EX 每日签到</b>\n"
     msg += f"{sep}\n"
     msg += f"⏰ {now_bj:%Y-%m-%d %H:%M}\n"
     msg += f"📊 成功 <b>{ok}</b>/<b>{len(accounts)}</b>\n"
-    if activity["enabled"]:
-        msg += f"📖 活跃度任务完成 <b>{activity_ok}</b>/<b>{len(accounts)}</b>（不代表奖励确认）\n"
     msg += f"{sep}\n"
     msg += "\n".join(results)
     msg += f"\n{sep}\n"
