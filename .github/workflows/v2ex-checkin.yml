@@ -4,7 +4,7 @@ on:
   schedule:
     # UTC 06:00 = 北京时间 14:00，避开每天 08:00 刷新前后。
     # GitHub 排队可能导致实际签到延后，任务到达后仍正常执行。
-    - cron: '0 6 * * *'
+    - cron: '20 6 * * *'
   workflow_dispatch:
 
 concurrency:
